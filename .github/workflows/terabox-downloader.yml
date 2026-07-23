@@ -3,18 +3,34 @@ name: TeraBox Download & Upload Accelerator
 on:
   workflow_dispatch:
     inputs:
-      file_url:
-        description: 'URL directa de descarga (HTTP/HTTPS)'
+      url_1:
+        description: 'URL 1 de descarga (HTTP/HTTPS)'
         required: true
         type: string
-      terabox_path:
-        description: 'Carpeta de destino en TeraBox (ej. /Descargas/Proyectos)'
-        required: true
-        default: '/'
+      url_2:
+        description: 'URL 2 de descarga (Opcional)'
+        required: false
+        type: string
+      url_3:
+        description: 'URL 3 de descarga (Opcional)'
+        required: false
+        type: string
+      url_4:
+        description: 'URL 4 de descarga (Opcional)'
+        required: false
+        type: string
+      url_5:
+        description: 'URL 5 de descarga (Opcional)'
+        required: false
+        type: string
+      subfolder_path:
+        description: 'Subcarpeta dentro de Archive/Firmware/ (ej. Samsung/Galaxy o dejar vacío para la raíz)'
+        required: false
+        default: ''
         type: string
 
 jobs:
-  transfer-file:
+  transfer-files:
     runs-on: ubuntu-latest
     
     steps:
@@ -32,32 +48,61 @@ jobs:
           python-version: '3.10'
 
       - name: Instalar librería de TeraBox
-        # Aquí instalamos la librería. Puedes ajustar el nombre según la librería específica que utilices.
         run: pip install requests terabox-api
 
-      - name: Descargar archivo con aria2c (Acelerador)
+      - name: Descargar archivos con aria2c (Acelerador)
+        env:
+          # Pasamos las URLs como variables de entorno al script de bash
+          URL1: ${{ inputs.url_1 }}
+          URL2: ${{ inputs.url_2 }}
+          URL3: ${{ inputs.url_3 }}
+          URL4: ${{ inputs.url_4 }}
+          URL5: ${{ inputs.url_5 }}
         run: |
           mkdir -p ./download_dir
           cd ./download_dir
           
-          # aria2c configurado para máxima velocidad: 
-          # -x 16 (16 conexiones por servidor) 
-          # -s 16 (divide el archivo en 16 partes) 
-          # -k 1M (tamaño mínimo del fragmento)
-          aria2c --max-connection-per-server=16 \
-                 --split=16 \
-                 --min-split-size=1M \
-                 --continue=true \
-                 --content-disposition-default-utf8=true \
-                 "${{ inputs.file_url }}"
+          # Creamos un arreglo con todas las URLs proporcionadas
+          URLS=("$URL1" "$URL2" "$URL3" "$URL4" "$URL5")
+          
+          # Recorremos el arreglo y descargamos si la URL no está vacía
+          for URL in "${URLS[@]}"; do
+            if [ -n "$URL" ]; then
+              echo "========================================="
+              echo "Iniciando descarga de: $URL"
+              echo "========================================="
+              
+              aria2c --max-connection-per-server=16 \
+                     --split=16 \
+                     --min-split-size=1M \
+                     --continue=true \
+                     --content-disposition-default-utf8=true \
+                     "$URL"
+            fi
+          done
                  
-          echo "Contenido de la descarga:"
+          echo "========================================="
+          echo "Contenido total descargado listo para subir:"
           ls -la
+          echo "========================================="
 
-      - name: Subir archivo a TeraBox
+      - name: Construir ruta destino y Subir archivos a TeraBox
         env:
           TERABOX_COOKIE: ${{ secrets.TERABOX_COOKIE }}
-          DEST_FOLDER: ${{ inputs.terabox_path }}
+          USER_PATH: ${{ inputs.subfolder_path }}
         run: |
-          # Ejecutamos el script de Python pasándole el directorio y la ruta destino
-          python scripts/upload_to_terabox.py "./download_dir" "$DEST_FOLDER"
+          # Limpiamos el input del usuario para evitar barras duplicadas
+          CLEAN_USER_PATH="${USER_PATH#/}"
+          CLEAN_USER_PATH="${CLEAN_USER_PATH%/}"
+          
+          # Construimos la ruta forzada
+          if [ -z "$CLEAN_USER_PATH" ]; then
+            FINAL_DEST="/Archive/Firmware"
+          else
+            FINAL_DEST="/Archive/Firmware/$CLEAN_USER_PATH"
+          fi
+          
+          echo "La ruta forzada final en TeraBox será: $FINAL_DEST"
+          
+          # Ejecutamos el script de Python. Subirá TODOS los archivos en ./download_dir a FINAL_DEST
+          python scripts/upload_to_terabox.py "./download_dir" "$FINAL_DEST"
