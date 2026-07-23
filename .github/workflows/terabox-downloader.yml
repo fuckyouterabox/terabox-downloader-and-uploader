@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       url_1:
-        description: 'URL 1 de descarga (HTTP/HTTPS)'
+        description: 'URL 1 de descarga'
         required: true
         type: string
       url_2:
@@ -22,11 +22,6 @@ on:
       url_5:
         description: 'URL 5 de descarga (Opcional)'
         required: false
-        type: string
-      subfolder_path:
-        description: 'Subcarpeta dentro de Archive/Firmware/ (ej. Samsung/Galaxy o dejar vacío para la raíz)'
-        required: false
-        default: ''
         type: string
 
 jobs:
@@ -50,59 +45,69 @@ jobs:
       - name: Instalar librería de TeraBox
         run: pip install requests terabox-api
 
-      - name: Descargar archivos con aria2c (Acelerador)
+      - name: Procesar, Descargar y Subir cada URL
         env:
-          # Pasamos las URLs como variables de entorno al script de bash
+          TERABOX_COOKIE: ${{ secrets.TERABOX_COOKIE }}
           URL1: ${{ inputs.url_1 }}
           URL2: ${{ inputs.url_2 }}
           URL3: ${{ inputs.url_3 }}
           URL4: ${{ inputs.url_4 }}
           URL5: ${{ inputs.url_5 }}
         run: |
-          mkdir -p ./download_dir
-          cd ./download_dir
-          
-          # Creamos un arreglo con todas las URLs proporcionadas
+          # Metemos las URLs en un arreglo
           URLS=("$URL1" "$URL2" "$URL3" "$URL4" "$URL5")
           
-          # Recorremos el arreglo y descargamos si la URL no está vacía
+          # Llevamos un contador para crear carpetas aisladas
+          COUNTER=1
+          
           for URL in "${URLS[@]}"; do
+            # Solo procesamos si el campo de la URL no estaba vacío
             if [ -n "$URL" ]; then
-              echo "========================================="
-              echo "Iniciando descarga de: $URL"
-              echo "========================================="
+              echo "======================================================"
+              echo "PROCESANDO URL $COUNTER: $URL"
+              echo "======================================================"
               
-              aria2c --max-connection-per-server=16 \
+              # 1. AUTO-DETECCIÓN DE RUTA PARA ESTA URL ESPECÍFICA
+              PATH_WITHOUT_DOMAIN=$(echo "$URL" | sed 's|https\?://[^/]\+/||')
+              URL_DIR=$(dirname "$PATH_WITHOUT_DOMAIN")
+              
+              if [ "$URL_DIR" = "." ]; then
+                FINAL_DEST="/Archive"
+              else
+                FINAL_DEST="/Archive/$URL_DIR"
+              fi
+              
+              echo "-> Destino calculado en TeraBox: $FINAL_DEST"
+              
+              # 2. CREAR DIRECTORIO LOCAL AISLADO
+              LOCAL_DIR="./download_dir/url_$COUNTER"
+              mkdir -p "$LOCAL_DIR"
+              
+              # 3. DESCARGA DEL ARCHIVO (Guardado en su propio directorio)
+              echo "-> Iniciando descarga con aria2c..."
+              aria2c --dir="$LOCAL_DIR" \
+                     --max-connection-per-server=16 \
                      --split=16 \
                      --min-split-size=1M \
                      --continue=true \
                      --content-disposition-default-utf8=true \
                      "$URL"
+                     
+              echo "-> Archivo descargado en: $LOCAL_DIR"
+              ls -la "$LOCAL_DIR"
+              
+              # 4. SUBIDA A TERABOX
+              echo "-> Iniciando script de subida..."
+              python scripts/upload_to_terabox.py "$LOCAL_DIR" "$FINAL_DEST"
+              
+              echo "-> URL $COUNTER procesada con éxito."
+              echo ""
             fi
+            
+            # Aumentamos el contador para la siguiente URL
+            ((COUNTER++))
           done
-                 
-          echo "========================================="
-          echo "Contenido total descargado listo para subir:"
-          ls -la
-          echo "========================================="
-
-      - name: Construir ruta destino y Subir archivos a TeraBox
-        env:
-          TERABOX_COOKIE: ${{ secrets.TERABOX_COOKIE }}
-          USER_PATH: ${{ inputs.subfolder_path }}
-        run: |
-          # Limpiamos el input del usuario para evitar barras duplicadas
-          CLEAN_USER_PATH="${USER_PATH#/}"
-          CLEAN_USER_PATH="${CLEAN_USER_PATH%/}"
           
-          # Construimos la ruta forzada
-          if [ -z "$CLEAN_USER_PATH" ]; then
-            FINAL_DEST="/Archive/Firmware"
-          else
-            FINAL_DEST="/Archive/Firmware/$CLEAN_USER_PATH"
-          fi
-          
-          echo "La ruta forzada final en TeraBox será: $FINAL_DEST"
-          
-          # Ejecutamos el script de Python. Subirá TODOS los archivos en ./download_dir a FINAL_DEST
-          python scripts/upload_to_terabox.py "./download_dir" "$FINAL_DEST"
+          echo "======================================================"
+          echo "TODAS LAS URLS HAN SIDO PROCESADAS"
+          echo "======================================================"
