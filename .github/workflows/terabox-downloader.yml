@@ -1,4 +1,4 @@
-name: TeraBox Download & Upload Accelerator
+name: TeraBox Node.js Download & Upload Accelerator
 
 on:
   workflow_dispatch:
@@ -7,22 +7,7 @@ on:
         description: 'URL 1 de descarga'
         required: true
         type: string
-      url_2:
-        description: 'URL 2 de descarga (Opcional)'
-        required: false
-        type: string
-      url_3:
-        description: 'URL 3 de descarga (Opcional)'
-        required: false
-        type: string
-      url_4:
-        description: 'URL 4 de descarga (Opcional)'
-        required: false
-        type: string
-      url_5:
-        description: 'URL 5 de descarga (Opcional)'
-        required: false
-        type: string
+      # Puedes agregar url_2, url_3, etc. igual que antes
 
 jobs:
   transfer-files:
@@ -32,42 +17,33 @@ jobs:
       - name: Checkout del repositorio
         uses: actions/checkout@v4
 
-      - name: Instalar dependencias (aria2 y Python)
+      - name: Instalar aria2
         run: |
           sudo apt-get update
-          sudo apt-get install -y aria2 python3-pip
+          sudo apt-get install -y aria2
 
-      - name: Configurar entorno Python
-        uses: actions/setup-python@v5
+      - name: Configurar entorno Node.js
+        uses: actions/setup-node@v4
         with:
-          python-version: '3.10'
+          node-version: '20'
 
-      - name: Instalar librería de TeraBox
-        run: pip install requests terabox-api
+      - name: Instalar dependencias del script
+        run: npm install axios form-data
 
-      - name: Procesar, Descargar y Subir cada URL
+      - name: Procesar, Descargar y Subir
         env:
           TERABOX_COOKIE: ${{ secrets.TERABOX_COOKIE }}
           URL1: ${{ inputs.url_1 }}
-          URL2: ${{ inputs.url_2 }}
-          URL3: ${{ inputs.url_3 }}
-          URL4: ${{ inputs.url_4 }}
-          URL5: ${{ inputs.url_5 }}
         run: |
-          # Metemos las URLs en un arreglo
-          URLS=("$URL1" "$URL2" "$URL3" "$URL4" "$URL5")
-          
-          # Llevamos un contador para crear carpetas aisladas
+          URLS=("$URL1")
           COUNTER=1
           
           for URL in "${URLS[@]}"; do
-            # Solo procesamos si el campo de la URL no estaba vacío
             if [ -n "$URL" ]; then
               echo "======================================================"
               echo "PROCESANDO URL $COUNTER: $URL"
               echo "======================================================"
               
-              # 1. AUTO-DETECCIÓN DE RUTA PARA ESTA URL ESPECÍFICA
               PATH_WITHOUT_DOMAIN=$(echo "$URL" | sed 's|https\?://[^/]\+/||')
               URL_DIR=$(dirname "$PATH_WITHOUT_DOMAIN")
               
@@ -77,14 +53,10 @@ jobs:
                 FINAL_DEST="/Archive/$URL_DIR"
               fi
               
-              echo "-> Destino calculado en TeraBox: $FINAL_DEST"
-              
-              # 2. CREAR DIRECTORIO LOCAL AISLADO
               LOCAL_DIR="./download_dir/url_$COUNTER"
               mkdir -p "$LOCAL_DIR"
               
-              # 3. DESCARGA DEL ARCHIVO (Guardado en su propio directorio)
-              echo "-> Iniciando descarga con aria2c..."
+              echo "-> Descargando con aria2c..."
               aria2c --dir="$LOCAL_DIR" \
                      --max-connection-per-server=16 \
                      --split=16 \
@@ -93,21 +65,9 @@ jobs:
                      --content-disposition-default-utf8=true \
                      "$URL"
                      
-              echo "-> Archivo descargado en: $LOCAL_DIR"
-              ls -la "$LOCAL_DIR"
+              echo "-> Iniciando subida a TeraBox con Node.js..."
+              node scripts/upload_to_terabox.js "$LOCAL_DIR" "$FINAL_DEST"
               
-              # 4. SUBIDA A TERABOX
-              echo "-> Iniciando script de subida..."
-              python scripts/upload_to_terabox.py "$LOCAL_DIR" "$FINAL_DEST"
-              
-              echo "-> URL $COUNTER procesada con éxito."
-              echo ""
             fi
-            
-            # Aumentamos el contador para la siguiente URL
             ((COUNTER++))
           done
-          
-          echo "======================================================"
-          echo "TODAS LAS URLS HAN SIDO PROCESADAS"
-          echo "======================================================"
