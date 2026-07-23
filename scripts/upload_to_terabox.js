@@ -26,8 +26,8 @@ class TeraBoxClient {
         console.log(`[+] Iniciando subida: ${fileName} (${fileSize} bytes) a ${remotePath}`);
 
         try {
-            // TeraBox utiliza su subdominio c-core para la ingesta de archivos
-            const uploadUrl = 'https://c-core.terabox.com/rest/2.0/pcs/superfile2';
+            // CORRECCIÓN: Se cambió c-core.terabox.com por www.terabox.com para evitar el ENOTFOUND
+            const uploadUrl = 'https://www.terabox.com/rest/2.0/pcs/superfile2';
             
             const form = new FormData();
             form.append('file', fs.createReadStream(filePath));
