@@ -1,0 +1,63 @@
+name: TeraBox Download & Upload Accelerator
+
+on:
+  workflow_dispatch:
+    inputs:
+      file_url:
+        description: 'URL directa de descarga (HTTP/HTTPS)'
+        required: true
+        type: string
+      terabox_path:
+        description: 'Carpeta de destino en TeraBox (ej. /Descargas/Proyectos)'
+        required: true
+        default: '/'
+        type: string
+
+jobs:
+  transfer-file:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v4
+
+      - name: Instalar dependencias (aria2 y Python)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y aria2 python3-pip
+
+      - name: Configurar entorno Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Instalar librería de TeraBox
+        # Aquí instalamos la librería. Puedes ajustar el nombre según la librería específica que utilices.
+        run: pip install requests terabox-api
+
+      - name: Descargar archivo con aria2c (Acelerador)
+        run: |
+          mkdir -p ./download_dir
+          cd ./download_dir
+          
+          # aria2c configurado para máxima velocidad: 
+          # -x 16 (16 conexiones por servidor) 
+          # -s 16 (divide el archivo en 16 partes) 
+          # -k 1M (tamaño mínimo del fragmento)
+          aria2c --max-connection-per-server=16 \
+                 --split=16 \
+                 --min-split-size=1M \
+                 --continue=true \
+                 --content-disposition-default-utf8=true \
+                 "${{ inputs.file_url }}"
+                 
+          echo "Contenido de la descarga:"
+          ls -la
+
+      - name: Subir archivo a TeraBox
+        env:
+          TERABOX_COOKIE: ${{ secrets.TERABOX_COOKIE }}
+          DEST_FOLDER: ${{ inputs.terabox_path }}
+        run: |
+          # Ejecutamos el script de Python pasándole el directorio y la ruta destino
+          python scripts/upload_to_terabox.py "./download_dir" "$DEST_FOLDER"
