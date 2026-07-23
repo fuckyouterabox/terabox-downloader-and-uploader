@@ -64,6 +64,14 @@ jobs:
                      --continue=true \
                      --content-disposition-default-utf8=true \
                      "$URL"
+              
+              echo "-> Troceando archivos gigantes para evitar el error 413..."
+              cd "$LOCAL_DIR"
+              # Divide cualquier archivo mayor a 3GB en partes de 3000 MB
+              find . -type f -size +3G -exec split -b 3000M {} "{}.part" \;
+              # Borra el archivo original gigante para que Node no intente subirlo
+              find . -type f -size +3G -delete
+              cd ../../
                      
               echo "-> Iniciando subida a TeraBox con Node.js..."
               node scripts/upload_to_terabox.js "$LOCAL_DIR" "$FINAL_DEST"
